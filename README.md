@@ -8,7 +8,6 @@ These are the dependencies in use for testing, building, updating the language P
 
 * "[grunt](https://www.npmjs.com/package/grunt)" v1.0.1
 * "[grunt-checktextdomain](https://www.npmjs.com/package/grunt-checktextdomain)" v1.0.1
-
 * "[grunt-contrib-clean](https://www.npmjs.com/package/grunt-contrib-clean)" v1.1.0
 * "[grunt-contrib-compress](https://www.npmjs.com/package/grunt-contrib-compress)" v1.4.3
 * "[grunt-contrib-copy](https://www.npmjs.com/package/grunt-contrib-copy)" v1.0.0
@@ -66,7 +65,7 @@ Checks for any text domain issues and updates the POT file.
 
 Copies the plugin to create deployable plugin, then compresses the folder and then deletes the folder once compressed.
 
-The zip file will be labelled "%name%-v%version%.zip"
+The zip file will be labelled as ``%= pkg.name %-v%= pkg.version %.zip``
 
 ``$ grunt zip``
 
