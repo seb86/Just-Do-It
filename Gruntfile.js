@@ -13,6 +13,21 @@ module.exports = function(grunt) {
 			js: 'assets/js',
 		},
 
+		cssmin: {
+			target: {
+				files: [{
+					expand: true,
+					cwd: '<%= dirs.css %>',
+					src: [
+						'*.css',
+						'!*.min.css'
+					],
+					dest: '<%= dirs.css %>',
+					ext: '.min.css'
+				}]
+			}
+		},
+
 		uglify: {
 			options: {
 				compress: {
@@ -47,7 +62,6 @@ module.exports = function(grunt) {
 				'-W020': true, // Read only - error when assigning EO_SCRIPT_DEBUG a value.
 			},
 			all: [
-				'Gruntfile.js',
 				'<%= dirs.js %>/*.js',
 				'!<%= dirs.js %>/*.min.js'
 			]
@@ -76,8 +90,8 @@ module.exports = function(grunt) {
 					potFilename: '<%= pkg.name %>.pot', // Name of the POT file.
 					type: 'wp-plugin', // Type of project (wp-plugin or wp-theme).
 					potHeaders: {
-						'Report-Msgid-Bugs-To': 'https://sebastiendumont.com/contact-me/',
-						'language-team': 'Sébastien Dumont <mailme@sebastiendumont.com>',
+						'Report-Msgid-Bugs-To': 'https://yourdomain.com/',
+						'language-team': 'Your Name <youremail@domain.com>',
 						'language': 'en_US'
 					}
 				}
@@ -147,7 +161,7 @@ module.exports = function(grunt) {
 					},
 					{
 						from: /Version:.*$/m,
-						to: "Version: <%= pkg.version %>"
+						to: "Version:     <%= pkg.version %>"
 					},
 					{
 						from: /public \$version = \'.*.'/m,
@@ -159,30 +173,52 @@ module.exports = function(grunt) {
 					}
 				]
 			}
-		}
+		},
+
+		// Copies the plugin to create deployable plugin.
+		copy: {
+			deploy: {
+				src: [
+					'**',
+					'!.*',
+					'!*.md',
+					'!.*/**',
+					'.htaccess',
+					'!Gruntfile.js',
+					'!package.json',
+					'!node_modules/**',
+					'!.DS_Store',
+					'!npm-debug.log'
+				],
+				dest: '<%= pkg.name %>',
+				expand: true,
+				dot: true
+			}
+		},
+
+		// Compresses the deployable plugin folder.
+		compress: {
+			zip: {
+				options: {
+					archive: './<%= pkg.name %>-v<%= pkg.version %>.zip',
+					mode: 'zip'
+				},
+				files: [
+					{
+						src: './<%= pkg.name %>/**'
+					}
+				]
+			}
+		},
+
+		// Deletes the deployable plugin folder once zipped up.
+		clean: [ '<%= pkg.name %>' ]
 
 	});
 
-	grunt.registerTask( 'test', [
-		'jshint',
-		'newer:uglify'
-	]);
-
-	grunt.registerTask( 'dev', [
-		'replace',
-		'newer:uglify',
-		'makepot'
-	]);
-
-	grunt.registerTask( 'build', [
-		'replace',
-		'newer:uglify',
-		'checktextdomain',
-		'makepot'
-	]);
-
-	grunt.registerTask( 'update-pot', [
-		'checktextdomain',
-		'makepot'
-	]);
+	grunt.registerTask( 'test', [ 'jshint', 'cssmin', 'newer:uglify' ]);
+	grunt.registerTask( 'dev', [ 'replace', 'cssmin', 'newer:uglify', 'makepot' ]);
+	grunt.registerTask( 'build', [ 'replace', 'cssmin', 'newer:uglify', 'checktextdomain', 'makepot' ]);
+	grunt.registerTask( 'update-pot', [ 'checktextdomain', 'makepot' ]);
+	grunt.registerTask( 'zip', [ 'copy', 'compress', 'clean' ]);
 };
