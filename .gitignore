@@ -1,2 +1,14 @@
-node_modules/
+# Grunt
+/node_modules/
+npm-debug.log
+
+# WP Test install
+/tmp
+
+# Various file types to ignore when exporting.
 .DS_Store
+Thumbs.db
+*.sh
+.gitconfig
+*.zip
+releases/*.zip

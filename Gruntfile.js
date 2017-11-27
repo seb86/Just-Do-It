@@ -1,3 +1,6 @@
+var exec = require('promised-exec'),
+	path   = require('path');
+
 module.exports = function(grunt) {
 	'use strict';
 
@@ -6,6 +9,14 @@ module.exports = function(grunt) {
 	// Project configuration.
 	grunt.initConfig({
 		pkg: grunt.file.readJSON('package.json'),
+
+		pluginSlug: '<%= pkg.name %>',
+		mainFile: '<%= pkg.name %>.php',
+		changelogFile: 'changelog.txt',
+		tmpPath: '/tmp/<%= pluginSlug %>',
+		gitPath: path.resolve(__dirname),
+		deployUrl: 'git@github.com:<%= pkg.author %>/<%= pkg.repository.slug %>.git',
+		remoteName: '<%= pkg.repository.slug %>',
 
 		// Setting directories
 		dirs: {
@@ -85,15 +96,21 @@ module.exports = function(grunt) {
 		makepot: {
 			target: {
 				options: {
-					domainPath: 'languages', // Where to save the POT file.
-					mainFile: '<%= pkg.name %>.php', // Main project file.
-					potFilename: '<%= pkg.name %>.pot', // Name of the POT file.
 					type: 'wp-plugin', // Type of project (wp-plugin or wp-theme).
+					domainPath: 'languages', // Where to save the POT file.
+					mainFile: '<%= mainFile %>', // Main project file.
+					potFilename: '<%= pkg.name %>.pot', // Name of the POT file.
 					potHeaders: {
 						'Report-Msgid-Bugs-To': 'https://yourdomain.com/',
 						'language-team': 'Your Name <youremail@domain.com>',
 						'language': 'en_US'
-					}
+					},
+					exclude: [
+						'woo-dependencies/.*',
+						'node_modules',
+						'tests/.*',
+						'tmp'
+					]
 				}
 			}
 		},
@@ -125,6 +142,7 @@ module.exports = function(grunt) {
 					'!woo-dependencies/**', // Exclude woo-dependencies/
 					'!node_modules/**', // Exclude node_modules/
 					'!tmp/**', // Exclude tmp/
+					'!tests/**' // Exclude tests/
 				],
 				expand: true
 			},
@@ -161,15 +179,11 @@ module.exports = function(grunt) {
 					},
 					{
 						from: /Version:.*$/m,
-						to: "Version:     <%= pkg.version %>"
+						to: "Version: <%= pkg.version %>"
 					},
 					{
 						from: /public \$version = \'.*.'/m,
 						to: "public $version = '<%= pkg.version %>'"
-					},
-					{
-						from: /public \$version      = \'.*.'/m,
-						to: "public $version      = '<%= pkg.version %>'"
 					}
 				]
 			}
@@ -188,7 +202,13 @@ module.exports = function(grunt) {
 					'!package.json',
 					'!node_modules/**',
 					'!.DS_Store',
-					'!npm-debug.log'
+					'!npm-debug.log',
+					'!*.sh',
+					'!*.zip',
+					'!*.jpg',
+					'!*.jpeg',
+					'!*.gif',
+					'!*.png'
 				],
 				dest: '<%= pkg.name %>',
 				expand: true,
@@ -205,7 +225,10 @@ module.exports = function(grunt) {
 				},
 				files: [
 					{
-						src: './<%= pkg.name %>/**'
+						expand: true,
+						cwd: './<%= pkg.name %>/',
+						src: '**',
+						dest: 'releases/'
 					}
 				]
 			}
@@ -216,9 +239,131 @@ module.exports = function(grunt) {
 
 	});
 
-	grunt.registerTask( 'test', [ 'jshint', 'cssmin', 'newer:uglify' ]);
-	grunt.registerTask( 'dev', [ 'replace', 'cssmin', 'newer:uglify', 'makepot' ]);
-	grunt.registerTask( 'build', [ 'replace', 'cssmin', 'newer:uglify', 'checktextdomain', 'makepot' ]);
+	// Set the default grunt command to run test cases.
+	grunt.registerTask( 'default', [ 'test' ] );
+
+	// Checks for errors.
+	grunt.registerTask( 'test', [ 'cssmin', 'jshint', 'checktextdomain' ]);
+
+	// Checks for errors, updates version and runs i18n tasks.
+	grunt.registerTask( 'dev', [ 'replace', 'cssmin', 'jshint', 'newer:uglify', 'makepot' ]);
+
+	// All together now.
+	grunt.registerTask( 'build', 'The "build" sequence: [Update, Check, Test and Build, MakePot]', function() {
+		grunt.log.ok([
+			"..........................................",
+			"Preparing to build...",
+			".........................................."
+		].join("\n\n"));
+
+		grunt.task.run([
+			'replace',
+			'check-git',
+			'minify',
+			'update-pot',
+			'zip'
+		]);
+	});
+
+	/**
+	 * Run checks and minification tasks.
+	 *
+	 * 1. Checks for any CSS syntax errors and minifies the CSS if error free.
+	 * 2. Checks for any JavaScript syntax errors and minifies the JavaScript if error free.
+	 */
+	grunt.registerTask( 'minify', [ 'cssmin', 'jshint', 'newer:uglify' ]);
+
+	/**
+	 * Run Git related check tasks.
+	 *
+	 * 1. Checks versions to be the same across all files and compares them to the one in
+	 * package.json
+	 * 2. Makes sure we do not have a tag with the pacakge version released yet.
+	 */
+	grunt.registerTask( 'check-git', [ 'check-versions', 'check-git-tag' ]);
+
+	/**
+	 * Makes sure we do not have a tag with the pacakge version released yet.
+	 * Exits if we do.
+	 */
+	grunt.registerTask( 'check-git-tag', 'Make sure git tag doesn\'t exist yet', function() {
+		var done = this.async(),
+			version = '<%= pkg.version %>';
+
+		exec( 'git show-ref --tags --quiet --verify -- "refs/tags/' + version + '"' )
+			.then( function() {
+				grunt.fail.fatal( 'Version ' + version + ' already exists as git tag.', 3 );
+			})
+			.fail( function() {
+				grunt.log.ok( 'No git tag exists for ' + version + '. Let\'s proceed...' );
+			})
+			.fin(done);
+	});
+
+	/**
+	 * Checks versions to be the same across all files and compares them to the one in
+	 * package.json
+	 * - top of plugin-slug.php within WordPress plugin comment
+	 * - static property of the plugin object
+	 * - changelog.txt latest entry
+	 */
+	grunt.registerTask( 'check-versions', 'Make sure all versions everywhere are the same', function() {
+		var file = grunt.file.read( '<%= mainFile %>', {encoding: 'utf8'} ),
+			changelog = grunt.file.read( '<%= changelogFile %>', {encoding: 'utf8'} ),
+
+			// Need the version from the top of the main file
+			readmeVersionRegex = /\* Version: ([0-9\.]+)/g,
+			readmeVersion = readmeVersionRegex.exec(file)[1],
+
+			// Need the version from the main file in the public static $version property
+			versionPropertyRegex = /public static \$version = '([0-9\.]+)';/g,
+			versionProperty = versionPropertyRegex.exec(file)[1],
+
+			// Need the version in package.json file = pkg.version
+			// Need the version in changelog.txt
+			changelogVersionRegex = /\d{4}\.\d{2}\.\d{2} - version ([0-9\.]+)/g,
+			changelogVersion = changelogVersionRegex.exec(changelog)[1],
+			newVersion = '<%= pkg.version %>',
+			releaseRegex = /\d\.\d\.\d-\d+/,
+			isRelease = newVersion.match(releaseRegex),
+			messages = [],
+			failed = false,
+			m;
+
+		if ( newVersion != readmeVersion ) {
+			messages.push( 'The readme version (' + readmeVersion + ') is not the same as the new: ' + newVersion );
+			failed = true;
+		}
+
+		if ( newVersion != versionProperty ) {
+			messages.push( 'The version property (' + versionProperty + ') is not the same as the new: ' + newVersion );
+			failed = true;
+		}
+
+		if ( newVersion != changelogVersion ) {
+			messages.push( 'The changelog version (' + changelogVersion + ') is not the same as the new: ' + newVersion );
+			failed = true;
+		}
+
+		if ( failed && null === isRelease ) {
+			m = messages.join("\n");
+			grunt.fail.fatal("\n" + m, 3);
+		}
+
+		grunt.log.ok( "\nVersions match. Let's proceed...\n" );
+	});
+
+	/**
+	 * Run i18n related tasks.
+	 *
+	 * This includes extracting translatable strings, updating the master pot file.
+	 * If this is part of a deploy process, it should come before zipping everything up.
+	 */
 	grunt.registerTask( 'update-pot', [ 'checktextdomain', 'makepot' ]);
+
+	/**
+	 * Creates a deployable plugin zipped up ready to upload
+	 * and install on a WordPress installation.
+	 */
 	grunt.registerTask( 'zip', [ 'copy', 'compress', 'clean' ]);
 };
